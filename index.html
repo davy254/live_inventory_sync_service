@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NorthStar Retail — Inventory Sync Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1B2430;
+    --ink-light:#5B6472;
+    --paper:#EEF0EA;
+    --paper-raised:#F8F9F5;
+    --amber:#E8A33D;
+    --amber-dark:#B87A1F;
+    --stock-green:#3F7D58;
+    --stock-green-bg:#E4EFE7;
+    --low-amber-bg:#FBEEDC;
+    --alert-red:#C1443C;
+    --alert-red-bg:#F7E4E2;
+    --line:#D8DBD1;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--ink);
+    font-family:'IBM Plex Sans',sans-serif;
+    min-height:100vh;
+  }
+  .display{font-family:'Barlow Condensed',sans-serif; letter-spacing:0.01em;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  /* ===== Manifest ticker ===== */
+  .ticker-bar{
+    background:var(--ink);
+    color:var(--paper);
+    overflow:hidden;
+    white-space:nowrap;
+    border-bottom:1px solid #2E3A4B;
+    position:relative;
+    height:34px;
+  }
+  .ticker-track{
+    display:inline-block;
+    padding-left:100%;
+    animation:scroll-left 32s linear infinite;
+  }
+  .ticker-bar.paused .ticker-track{ animation-play-state: paused; }
+  @keyframes scroll-left{
+    0%{ transform:translateX(0); }
+    100%{ transform:translateX(-100%); }
+  }
+  .ticker-item{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    padding:0 28px;
+    height:34px;
+    vertical-align:top;
+    line-height:34px;
+    color:#C7CDD6;
+  }
+  .ticker-item .tk-sku{ color:var(--amber); font-weight:600; }
+  .ticker-item .tk-up{ color:#7FCB9C; }
+  .ticker-item .tk-down{ color:#E19A93; }
+
+  /* ===== Shell ===== */
+  .shell{
+    background:var(--paper);
+    min-height:calc(100vh - 34px);
+    padding:28px clamp(16px,4vw,40px) 48px;
+  }
+  header.masthead{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    flex-wrap:wrap;
+    gap:16px;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:14px;
+    margin-bottom:22px;
+  }
+  .masthead-title{
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:700;
+    font-size:clamp(28px,4vw,40px);
+    letter-spacing:0.01em;
+    line-height:1;
+    margin:0;
+    color:var(--ink);
+  }
+  .masthead-sub{
+    font-size:12.5px;
+    color:var(--ink-light);
+    margin-top:4px;
+    font-family:'IBM Plex Mono',monospace;
+    letter-spacing:0.02em;
+  }
+  .sync-status{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    padding:8px 14px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--paper-raised);
+  }
+  .pulse-dot{
+    width:9px;height:9px;border-radius:50%;
+    background:var(--stock-green);
+    box-shadow:0 0 0 0 rgba(63,125,88,0.5);
+    animation:pulse 2s infinite;
+  }
+  .pulse-dot.off{
+    background:var(--alert-red);
+    animation:none;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(63,125,88,0.45); }
+    70%{ box-shadow:0 0 0 8px rgba(63,125,88,0); }
+    100%{ box-shadow:0 0 0 0 rgba(63,125,88,0); }
+  }
+  .sync-toggle{
+    border:1px solid var(--ink);
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px;
+    padding:5px 10px;
+    border-radius:6px;
+    cursor:pointer;
+    margin-left:4px;
+  }
+  .sync-toggle:hover{ background:#33415A; }
+
+  /* ===== Grid ===== */
+  .grid{
+    display:grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap:22px;
+    align-items:start;
+  }
+  @media (max-width:900px){
+    .grid{ grid-template-columns: 1fr; }
+  }
+  .panel{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:20px;
+  }
+  .panel + .panel{ margin-top:20px; }
+  .panel-eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--ink-light);
+    margin:0 0 4px;
+  }
+  .panel-title{
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:600;
+    font-size:22px;
+    margin:0 0 14px;
+    color:var(--ink);
+  }
+
+  /* ===== Lookup ===== */
+  .lookup-input-wrap{ position:relative; }
+  #lookupInput{
+    width:100%;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:16px;
+    padding:14px 16px;
+    border:1.5px solid var(--ink);
+    border-radius:8px;
+    background:var(--paper);
+    outline:none;
+  }
+  #lookupInput:focus{ border-color:var(--amber-dark); box-shadow:0 0 0 3px rgba(232,163,61,0.25); }
+  .suggestions{
+    position:absolute;
+    top:calc(100% + 6px);
+    left:0; right:0;
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow:0 8px 20px rgba(27,36,48,0.12);
+    z-index:5;
+    max-height:220px;
+    overflow-y:auto;
+    display:none;
+  }
+  .suggestions.show{ display:block; }
+  .suggestion-item{
+    padding:10px 14px;
+    cursor:pointer;
+    font-size:14px;
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .suggestion-item:last-child{ border-bottom:none; }
+  .suggestion-item:hover, .suggestion-item.active{ background:var(--low-amber-bg); }
+  .suggestion-item .s-sku{ font-family:'IBM Plex Mono',monospace; color:var(--ink-light); font-size:12px; }
+
+  .answer-card{
+    margin-top:18px;
+    border-radius:8px;
+    padding:18px;
+    border:1.5px solid var(--line);
+    min-height:120px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+  .answer-card.empty{ color:var(--ink-light); font-size:14px; }
+  .answer-card.instock{ background:var(--stock-green-bg); border-color:#BEDBC7; }
+  .answer-card.low{ background:var(--low-amber-bg); border-color:#EFD3A3; }
+  .answer-card.out{ background:var(--alert-red-bg); border-color:#EAC0BC; }
+  .answer-headline{
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:700;
+    font-size:26px;
+    margin:0 0 6px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .answer-meta{
+    font-size:13.5px;
+    color:var(--ink);
+    line-height:1.55;
+  }
+  .answer-meta .mono{ color:var(--ink-light); }
+  .freshness{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px;
+    margin-top:10px;
+    color:var(--ink-light);
+  }
+  .freshness.stale{ color:var(--alert-red); font-weight:600; }
+  .freshness .dot{ width:6px;height:6px;border-radius:50%; background:currentColor; }
+
+  /* ===== Inventory table ===== */
+  table.inv-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13.5px;
+  }
+  table.inv-table th{
+    text-align:left;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--ink-light);
+    padding:0 8px 8px;
+    border-bottom:1px solid var(--ink);
+  }
+  table.inv-table td{
+    padding:9px 8px;
+    border-bottom:1px solid var(--line);
+    vertical-align:middle;
+  }
+  table.inv-table tr:last-child td{ border-bottom:none; }
+  .tag{
+    display:inline-block;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;
+    font-weight:600;
+    padding:3px 8px;
+    border-radius:5px;
+  }
+  .tag.instock{ background:var(--stock-green-bg); color:var(--stock-green); }
+  .tag.low{ background:var(--low-amber-bg); color:var(--amber-dark); }
+  .tag.out{ background:var(--alert-red-bg); color:var(--alert-red); }
+  .qty-flash{ animation:flash 1s ease; }
+  @keyframes flash{
+    0%{ background:#FCE9C0; }
+    100%{ background:transparent; }
+  }
+
+  /* ===== Admin override ===== */
+  .override-row{
+    display:flex;
+    gap:8px;
+    margin-top:14px;
+    flex-wrap:wrap;
+  }
+  select, input[type=number]{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    padding:8px 10px;
+    border:1px solid var(--ink);
+    border-radius:6px;
+    background:var(--paper);
+  }
+  select{ flex:1 1 160px; }
+  input[type=number]{ width:90px; }
+  button.apply-btn{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    font-weight:600;
+    background:var(--amber);
+    border:1.5px solid var(--amber-dark);
+    color:#2A1D06;
+    padding:8px 14px;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  button.apply-btn:hover{ background:#F0B455; }
+  .override-hint{
+    font-size:12px;
+    color:var(--ink-light);
+    margin-top:8px;
+    line-height:1.5;
+  }
+
+  /* ===== Log ===== */
+  .log-feed{
+    max-height:180px;
+    overflow-y:auto;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px;
+    line-height:1.7;
+    color:var(--ink-light);
+    border-top:1px solid var(--line);
+    margin-top:14px;
+    padding-top:10px;
+  }
+  .log-feed div span{ color:var(--ink); }
+
+  footer.note{
+    max-width:900px;
+    margin:34px auto 0;
+    font-size:12px;
+    color:var(--ink-light);
+    line-height:1.6;
+    border-top:1px dashed var(--line);
+    padding-top:14px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Signature element: scrolling manifest ticker of live sync events -->
+  <div class="ticker-bar" id="tickerBar">
+    <div class="ticker-track" id="tickerTrack"></div>
+  </div>
+
+  <div class="shell">
+    <header class="masthead">
+      <div>
+        <h1 class="masthead-title">NorthStar Inventory Sync</h1>
+        <div class="masthead-sub">SUPPORT-FACING STOCK LOOKUP · PROTOTYPE BUILD</div>
+      </div>
+      <div class="sync-status">
+        <span class="pulse-dot" id="pulseDot"></span>
+        <span id="syncStatusText">Sync connected · last update <span id="lastSyncTime" class="mono">just now</span></span>
+        <button class="sync-toggle" id="syncToggleBtn">Simulate outage</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LEFT: Support lookup -->
+      <div>
+        <div class="panel">
+          <p class="panel-eyebrow">Support tool</p>
+          <h2 class="panel-title">Is this in stock?</h2>
+          <div class="lookup-input-wrap">
+            <input type="text" id="lookupInput" class="mono" placeholder="Type a product name or SKU…" autocomplete="off">
+            <div class="suggestions" id="suggestions"></div>
+          </div>
+
+          <div class="answer-card empty" id="answerCard">
+            Search a product above to see live stock status, quantity, and warehouse location — pulled from the same feed the warehouse floor updates.
+          </div>
+        </div>
+
+        <div class="panel">
+          <p class="panel-eyebrow">Sync activity</p>
+          <h2 class="panel-title">Recent events</h2>
+          <div class="log-feed" id="logFeed"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Sync console -->
+      <div>
+        <div class="panel">
+          <p class="panel-eyebrow">Live feed simulator</p>
+          <h2 class="panel-title">Warehouse &amp; POS console</h2>
+          <table class="inv-table">
+            <thead>
+              <tr><th>Product</th><th>SKU</th><th>Qty</th><th>Status</th></tr>
+            </thead>
+            <tbody id="invTableBody"></tbody>
+          </table>
+
+          <div class="override-row">
+            <select id="overrideProduct"></select>
+            <input type="number" id="overrideQty" placeholder="New qty" min="0">
+            <button class="apply-btn" id="overrideBtn">Push update</button>
+          </div>
+          <p class="override-hint">Simulates a POS sale or warehouse receiving event. Pushing a value here updates the sync feed instantly — reflected the moment support re-checks the item.</p>
+        </div>
+      </div>
+    </div>
+
+    <footer class="note">
+      <strong>How this maps to production:</strong> this prototype simulates the sync feed in-browser so you can see the interaction pattern end to end. In production, "Push update" would be replaced by a webhook from your POS/warehouse system (e.g. Shopify, NetSuite, a WMS) hitting a small backend endpoint, which writes to a shared inventory store. The support tool's lookup would query that store directly (or via websocket for push updates) instead of the local array used here — so agents always see the same number the warehouse just saw, without page refresh or manual reconciliation.
+    </footer>
+  </div>
+
+<script>
+(function(){
+  // ---- Seed data ----
+  let products = [
+    { id:'p1', name:'Trailhead 40L Backpack', sku:'NS-BP-4001', qty:14, threshold:5, location:'Nairobi DC · Aisle 3B' },
+    { id:'p2', name:'Summit Merino Hoodie — Charcoal', sku:'NS-AP-1187', qty:3, threshold:5, location:'Nairobi DC · Aisle 1A' },
+    { id:'p3', name:'Kilifi Trail Running Shoe, M9', sku:'NS-FT-2290', qty:0, threshold:5, location:'Mombasa DC · Aisle 5C' },
+    { id:'p4', name:'Everyday Steel Water Bottle 1L', sku:'NS-HW-0552', qty:58, threshold:10, location:'Nairobi DC · Aisle 2D' },
+    { id:'p5', name:'Rift Valley Camp Chair', sku:'NS-HW-0781', qty:7, threshold:8, location:'Kisumu DC · Aisle 1C' },
+    { id:'p6', name:'Longonot 2-Person Tent', sku:'NS-CP-3315', qty:2, threshold:4, location:'Nairobi DC · Aisle 4A' },
+    { id:'p7', name:'Savanna Wide-Brim Sun Hat', sku:'NS-AP-1420', qty:22, threshold:6, location:'Mombasa DC · Aisle 1B' },
+  ];
+
+  let lastSync = new Date();
+  let syncConnected = true;
+  let logEntries = [];
+
+  const invTableBody = document.getElementById('invTableBody');
+  const overrideProduct = document.getElementById('overrideProduct');
+  const logFeed = document.getElementById('logFeed');
+  const tickerTrack = document.getElementById('tickerTrack');
+  const lastSyncTimeEl = document.getElementById('lastSyncTime');
+  const pulseDot = document.getElementById('pulseDot');
+  const syncStatusText = document.getElementById('syncStatusText');
+  const syncToggleBtn = document.getElementById('syncToggleBtn');
+  const tickerBar = document.getElementById('tickerBar');
+
+  function statusFor(p){
+    if (p.qty <= 0) return 'out';
+    if (p.qty <= p.threshold) return 'low';
+    return 'instock';
+  }
+  function statusLabel(s){
+    return s === 'out' ? 'Out of stock' : s === 'low' ? 'Low stock' : 'In stock';
+  }
+
+  function timeAgo(date){
+    const secs = Math.round((Date.now() - date.getTime())/1000);
+    if (secs < 5) return 'just now';
+    if (secs < 60) return secs + 's ago';
+    const mins = Math.round(secs/60);
+    return mins + 'm ago';
+  }
+
+  function renderTable(flashId){
+    invTableBody.innerHTML = '';
+    products.forEach(p=>{
+      const s = statusFor(p);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${p.name}</td>
+        <td class="mono">${p.sku}</td>
+        <td class="mono ${p.id===flashId ? 'qty-flash' : ''}">${p.qty}</td>
+        <td><span class="tag ${s}">${statusLabel(s)}</span></td>
+      `;
+      invTableBody.appendChild(tr);
+    });
+  }
+
+  function renderOverrideOptions(){
+    overrideProduct.innerHTML = products.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  }
+
+  function renderLog(){
+    logFeed.innerHTML = logEntries.slice(0,12).map(e=>`<div><span class="mono">[${e.time}]</span> ${e.text}</div>`).join('');
+  }
+
+  function pushLog(text){
+    logEntries.unshift({ time: new Date().toLocaleTimeString(), text });
+    renderLog();
+  }
+
+  function renderTicker(){
+    // Build ticker items from products, duplicated once so the loop feels continuous
+    const items = products.map(p=>{
+      const s = statusFor(p);
+      const dirClass = s === 'out' ? 'tk-down' : s === 'low' ? 'tk-down' : 'tk-up';
+      return `<span class="ticker-item"><span class="tk-sku">${p.sku}</span> ${p.name} — qty ${p.qty} <span class="${dirClass}">(${statusLabel(s)})</span></span>`;
+    }).join('');
+    tickerTrack.innerHTML = items + items;
+  }
+
+  function updateSyncStamp(){
+    lastSyncTimeEl.textContent = syncConnected ? timeAgo(lastSync) : timeAgo(lastSync);
+  }
+
+  function setSyncConnected(connected){
+    syncConnected = connected;
+    pulseDot.classList.toggle('off', !connected);
+    tickerBar.classList.toggle('paused', !connected);
+    syncToggleBtn.textContent = connected ? 'Simulate outage' : 'Restore sync';
+    syncStatusText.innerHTML = connected
+      ? `Sync connected · last update <span id="lastSyncTime" class="mono">${timeAgo(lastSync)}</span>`
+      : `<strong style="color:var(--alert-red)">Sync interrupted</strong> · feed stalled <span id="lastSyncTime" class="mono">${timeAgo(lastSync)}</span>`;
+    // re-grab reference since innerHTML replaced it
+    window.__lastSyncTimeEl = document.getElementById('lastSyncTime');
+  }
+
+  // ---- Simulated live feed: random stock movement every few seconds ----
+  function simulateEvent(){
+    if (!syncConnected) return;
+    const p = products[Math.floor(Math.random()*products.length)];
+    const delta = Math.random() > 0.5 ? -1 * (1 + Math.floor(Math.random()*2)) : (1 + Math.floor(Math.random()*3));
+    const newQty = Math.max(0, p.qty + delta);
+    if (newQty === p.qty) return;
+    const action = delta < 0 ? 'sold' : 'restocked';
+    p.qty = newQty;
+    lastSync = new Date();
+    pushLog(`<span>${p.sku}</span> ${action} ${Math.abs(delta)} unit${Math.abs(delta)>1?'s':''} → qty now ${p.qty}`);
+    renderTable(p.id);
+    renderTicker();
+    if (currentLookupId === p.id) renderAnswer(p);
+  }
+
+  // ---- Support lookup ----
+  const lookupInput = document.getElementById('lookupInput');
+  const suggestionsEl = document.getElementById('suggestions');
+  const answerCard = document.getElementById('answerCard');
+  let currentLookupId = null;
+  let activeSuggestionIndex = -1;
+
+  function matchProducts(q){
+    q = q.trim().toLowerCase();
+    if (!q) return [];
+    return products.filter(p =>
+      p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+    ).slice(0,6);
+  }
+
+  function renderSuggestions(list){
+    if (!list.length){
+      suggestionsEl.classList.remove('show');
+      suggestionsEl.innerHTML = '';
+      return;
+    }
+    suggestionsEl.innerHTML = list.map((p,i)=>`
+      <div class="suggestion-item" data-id="${p.id}" data-index="${i}">
+        <span>${p.name}</span>
+        <span class="s-sku">${p.sku}</span>
+      </div>
+    `).join('');
+    suggestionsEl.classList.add('show');
+    activeSuggestionIndex = -1;
+  }
+
+  function renderAnswer(p){
+    currentLookupId = p.id;
+    const s = statusFor(p);
+    answerCard.className = 'answer-card ' + s;
+    const stale = !syncConnected && (Date.now() - lastSync.getTime()) > 8000;
+    const icon = s === 'out' ? '⛔' : s === 'low' ? '⚠️' : '✅';
+    answerCard.innerHTML = `
+      <div class="answer-headline">${icon} ${statusLabel(s)}</div>
+      <div class="answer-meta">
+        <strong>${p.name}</strong> <span class="mono">(${p.sku})</span><br>
+        Quantity available: <strong>${p.qty}</strong> · Location: ${p.location}
+      </div>
+      <div class="freshness ${stale ? 'stale' : ''}">
+        <span class="dot"></span>
+        ${stale ? 'Feed stalled — this number may be out of date' : 'Synced ' + timeAgo(lastSync)}
+      </div>
+    `;
+  }
+
+  lookupInput.addEventListener('input', ()=>{
+    const list = matchProducts(lookupInput.value);
+    renderSuggestions(list);
+  });
+
+  lookupInput.addEventListener('keydown', (e)=>{
+    const items = Array.from(suggestionsEl.querySelectorAll('.suggestion-item'));
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      if (!items.length) return;
+      activeSuggestionIndex = (activeSuggestionIndex + 1) % items.length;
+      items.forEach((it,i)=>it.classList.toggle('active', i===activeSuggestionIndex));
+    } else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      if (!items.length) return;
+      activeSuggestionIndex = (activeSuggestionIndex - 1 + items.length) % items.length;
+      items.forEach((it,i)=>it.classList.toggle('active', i===activeSuggestionIndex));
+    } else if (e.key === 'Enter'){
+      e.preventDefault();
+      let id = null;
+      if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]){
+        id = items[activeSuggestionIndex].dataset.id;
+      } else {
+        const list = matchProducts(lookupInput.value);
+        if (list.length) id = list[0].id;
+      }
+      if (id){
+        const p = products.find(x=>x.id===id);
+        lookupInput.value = p.name;
+        suggestionsEl.classList.remove('show');
+        renderAnswer(p);
+      }
+    } else if (e.key === 'Escape'){
+      suggestionsEl.classList.remove('show');
+    }
+  });
+
+  suggestionsEl.addEventListener('click', (e)=>{
+    const item = e.target.closest('.suggestion-item');
+    if (!item) return;
+    const p = products.find(x=>x.id===item.dataset.id);
+    lookupInput.value = p.name;
+    suggestionsEl.classList.remove('show');
+    renderAnswer(p);
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (!e.target.closest('.lookup-input-wrap')) suggestionsEl.classList.remove('show');
+  });
+
+  // ---- Admin manual override (simulated POS/warehouse push) ----
+  document.getElementById('overrideBtn').addEventListener('click', ()=>{
+    const id = overrideProduct.value;
+    const qtyInput = document.getElementById('overrideQty');
+    const newQty = parseInt(qtyInput.value, 10);
+    if (isNaN(newQty) || newQty < 0){
+      qtyInput.focus();
+      return;
+    }
+    const p = products.find(x=>x.id===id);
+    p.qty = newQty;
+    lastSync = new Date();
+    pushLog(`<span>${p.sku}</span> manual update pushed → qty set to ${p.qty}`);
+    renderTable(p.id);
+    renderTicker();
+    qtyInput.value = '';
+    if (currentLookupId === p.id) renderAnswer(p);
+  });
+
+  // ---- Sync outage toggle ----
+  syncToggleBtn.addEventListener('click', ()=>{
+    setSyncConnected(!syncConnected);
+    if (syncConnected){
+      lastSync = new Date();
+      pushLog('Sync connection restored — feed resumed');
+    } else {
+      pushLog('Sync connection interrupted (simulated outage)');
+    }
+  });
+
+  // ---- Clock tick for freshness labels ----
+  setInterval(()=>{
+    const el = document.getElementById('lastSyncTime');
+    if (el) el.textContent = timeAgo(lastSync);
+    if (currentLookupId){
+      const p = products.find(x=>x.id===currentLookupId);
+      if (p) renderAnswer(p);
+    }
+  }, 1000);
+
+  // ---- Init ----
+  renderTable();
+  renderOverrideOptions();
+  renderTicker();
+  pushLog('Sync console initialized · 7 SKUs loaded');
+  setSyncConnected(true);
+  setInterval(simulateEvent, 3500);
+
+})();
+</script>
+</body>
+</html>
